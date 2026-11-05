@@ -43,7 +43,14 @@ function toggleSidebar() {
     if (ov) ov.classList.toggle('active');
 }
 
-function switchPage(pageId, evt) {
+async function switchPage(pageId, evt) {
+    var adminOnlyPages = ['page-buat-ssh', 'page-buat-v2ray', 'page-set-ssh', 'page-set-v2ray', 'page-set-cfip', 'page-generator'];
+    if (adminOnlyPages.indexOf(pageId) !== -1 && !adminToken) {
+        alert("Akses Terkunci! Silakan Login Admin terlebih dahulu.");
+        var loggedIn = await handleAdminAuthBtn();
+        if (!loggedIn && !adminToken) return;
+    }
+
     document.querySelectorAll('.page-section').forEach(function(page) {
         page.classList.remove('active');
     });
@@ -66,6 +73,7 @@ function switchPage(pageId, evt) {
 
 function checkAdminUI() {
     var indicator = document.getElementById('admin-indicator'); 
+    var indicatorV2 = document.getElementById('admin-indicator-v2ray');
     var loginBtn = document.getElementById('admin-login-btn');
     var changePassBtn = document.getElementById('btn-change-pass');
     if (!loginBtn) return;
@@ -75,30 +83,49 @@ function checkAdminUI() {
         loginBtn.style.background = "#f8fafc";
         loginBtn.style.color = "#334155";
         if (changePassBtn) changePassBtn.style.display = "none";
+        document.querySelectorAll('.admin-only-menu').forEach(function(el) { el.style.display = "none"; });
     } else if (adminToken) {
         if (indicator) {
-            indicator.innerText = "ADMIN ROUTE";
+            indicator.innerText = "ADMIN ONLY";
             indicator.style.color = "#0284c7";
             indicator.style.background = "#f0f9ff";
+        }
+        if (indicatorV2) {
+            indicatorV2.innerText = "ADMIN ONLY";
+            indicatorV2.style.color = "#0284c7";
+            indicatorV2.style.background = "#f0f9ff";
         }
         loginBtn.innerText = "LOGOUT";
         loginBtn.style.background = "#fef2f2";
         loginBtn.style.color = "#dc2626";
         if (changePassBtn) changePassBtn.style.display = "inline";
+        document.querySelectorAll('.admin-only-menu').forEach(function(el) { el.style.display = "block"; });
         document.querySelectorAll('.btn-del').forEach(function(b) { b.style.display = "inline-block"; }); 
         document.querySelectorAll('.btn-info').forEach(function(b) { b.style.display = "inline-block"; });
     } else {
         if (indicator) {
-            indicator.innerText = "PUBLIC CREATION";
-            indicator.style.color = "#475569";
-            indicator.style.background = "#f1f5f9";
+            indicator.innerText = "LOCKED (ADMIN)";
+            indicator.style.color = "#dc2626";
+            indicator.style.background = "#fef2f2";
+        }
+        if (indicatorV2) {
+            indicatorV2.innerText = "LOCKED (ADMIN)";
+            indicatorV2.style.color = "#dc2626";
+            indicatorV2.style.background = "#fef2f2";
         }
         loginBtn.innerText = "LOGIN ADMIN";
         loginBtn.style.background = "#f8fafc";
         loginBtn.style.color = "#334155";
         if (changePassBtn) changePassBtn.style.display = "none";
+        document.querySelectorAll('.admin-only-menu').forEach(function(el) { el.style.display = "none"; });
         document.querySelectorAll('.btn-del').forEach(function(b) { b.style.display = "none"; }); 
         document.querySelectorAll('.btn-info').forEach(function(b) { b.style.display = "none"; });
+
+        var currentActivePage = document.querySelector('.page-section.active');
+        if (currentActivePage && currentActivePage.id !== 'page-dashboard') {
+            document.querySelectorAll('.page-section').forEach(function(p) { p.classList.remove('active'); });
+            document.getElementById('page-dashboard').classList.add('active');
+        }
     }
 }
 
@@ -130,7 +157,7 @@ function toggleCustomWsBufInput() {
 
 async function handleAdminAuthBtn() {
     if (!isPassConfigured) {
-        var newP = prompt("KREASI PASSWORD ADMIN PERTAMA KALI:\nMasukkan Password Admin Baru:");
+        var newP = prompt("KREASI PASSWORD ADMIN PERTAMA KALI:\nMasukkan Password Admin Baru (Min. 4 karakter):");
         if (!newP) return false;
         try {
             var res = await fetch('/api/setup-pass?pass=' + encodeURIComponent(newP));
@@ -139,9 +166,12 @@ async function handleAdminAuthBtn() {
             if (data.status === "success") { 
                 adminToken = newP; 
                 localStorage.setItem("admin_session_token", adminToken); 
+                isPassConfigured = true;
+                checkAdminUI();
                 updateStats(); 
                 fetchAccounts();
                 fetchV2rayAccounts();
+                fetchServerInfo();
                 return true;
             }
         } catch(e) { alert("Gagal membuat password!"); }
@@ -151,6 +181,7 @@ async function handleAdminAuthBtn() {
     if (adminToken) { 
         localStorage.removeItem("admin_session_token"); 
         adminToken = ""; 
+        document.getElementById('uuidInput').value = "";
         checkAdminUI(); 
         fetchAccounts(); 
         fetchV2rayAccounts();
@@ -168,6 +199,7 @@ async function handleAdminAuthBtn() {
             checkAdminUI(); 
             fetchAccounts(); 
             fetchV2rayAccounts();
+            fetchServerInfo();
             return true;
         } else { 
             alert(data2.message); 
@@ -409,11 +441,16 @@ async function updateStats() {
 }
 
 async function fetchAccounts() {
+    var tbody = document.getElementById('ssh-table-body'); 
+    if (!tbody) return;
+    if (!adminToken) {
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; color:#dc2626; font-weight:bold;">Login Admin untuk melihat & mengelola akun SSH</td></tr>';
+        return;
+    }
+
     try {
-        var res = await fetch('/api/list'); 
+        var res = await fetch('/api/list?token=' + encodeURIComponent(adminToken)); 
         var data = await res.json(); 
-        var tbody = document.getElementById('ssh-table-body'); 
-        if (!tbody) return;
         tbody.innerHTML = "";
         
         if (data.status === "success" && data.users.length > 0) {
@@ -437,6 +474,12 @@ function showAccountDetails(username) {
 }
 
 async function createAccount() {
+    if (!adminToken) {
+        alert("Akses Ditolak! Hanya Admin yang dapat membuat akun SSH.");
+        var loggedIn = await handleAdminAuthBtn();
+        if (!loggedIn && !adminToken) return;
+    }
+
     var user = document.getElementById('ssh-user').value.trim(); 
     var pass = document.getElementById('ssh-pass').value.trim(); 
     var expEl = document.getElementById('ssh-exp');
@@ -452,7 +495,7 @@ async function createAccount() {
     }
     
     try {
-        var res = await fetch('/api/add?user=' + encodeURIComponent(user) + '&pass=' + encodeURIComponent(pass) + '&exp=' + encodeURIComponent(exp || 7)); 
+        var res = await fetch('/api/add?user=' + encodeURIComponent(user) + '&pass=' + encodeURIComponent(pass) + '&exp=' + encodeURIComponent(exp || 7) + '&token=' + encodeURIComponent(adminToken)); 
         var data = await res.json();
         if (data.status === "success") { 
             msg.innerText = ""; 
@@ -483,11 +526,16 @@ async function deleteAccount(username) {
 }
 
 async function fetchV2rayAccounts() {
+    var tbody = document.getElementById('v2ray-table-body');
+    if (!tbody) return;
+    if (!adminToken) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#dc2626; font-weight:bold;">Login Admin untuk melihat & mengelola akun V2Ray</td></tr>';
+        return;
+    }
+
     try {
-        var res = await fetch('/api/v2ray/list');
+        var res = await fetch('/api/v2ray/list?token=' + encodeURIComponent(adminToken));
         var data = await res.json();
-        var tbody = document.getElementById('v2ray-table-body');
-        if (!tbody) return;
         tbody.innerHTML = "";
 
         if (data.status === "success" && data.users.length > 0) {
@@ -511,6 +559,12 @@ async function fetchV2rayAccounts() {
 }
 
 async function createV2rayAccount() {
+    if (!adminToken) {
+        alert("Akses Ditolak! Hanya Admin yang dapat membuat akun V2Ray.");
+        var loggedIn = await handleAdminAuthBtn();
+        if (!loggedIn && !adminToken) return;
+    }
+
     var user = document.getElementById('v2ray-user').value.trim();
     var customUuid = document.getElementById('v2ray-uuid').value.trim();
     var exp = document.getElementById('v2ray-exp').value.trim() || "7";
@@ -525,7 +579,7 @@ async function createV2rayAccount() {
     }
 
     try {
-        var res = await fetch('/api/v2ray/add?user=' + encodeURIComponent(user) + '&uuid=' + encodeURIComponent(customUuid) + '&exp=' + encodeURIComponent(exp));
+        var res = await fetch('/api/v2ray/add?user=' + encodeURIComponent(user) + '&uuid=' + encodeURIComponent(customUuid) + '&exp=' + encodeURIComponent(exp) + '&token=' + encodeURIComponent(adminToken));
         var data = await res.json();
         if (data.status === "success") {
             msg.innerText = "";
@@ -715,7 +769,7 @@ function generateSingBoxJson(protocol, targetConnect, selectedPort, uuid, target
 
 async function fetchServerInfo() {
     try {
-        var response = await fetch('/__info');
+        var response = await fetch('/__info?token=' + encodeURIComponent(adminToken));
         if (!response.ok) return;
         var data = await response.json();
         if (data.uuid) document.getElementById('uuidInput').value = data.uuid;
@@ -724,10 +778,15 @@ async function fetchServerInfo() {
 }
 
 function buildRealityConfig(protocol, evt) {
+    if (!adminToken) { alert("Silakan Login Admin terlebih dahulu!"); return; }
     document.querySelectorAll('.btn-blue').forEach(function(b) { b.classList.remove('btn-active'); });
     if (evt && evt.target) evt.target.classList.add('btn-active');
 
     var uuid = document.getElementById('uuidInput').value.trim();
+    if (!uuid || uuid === "Loading...") {
+        alert("UUID masih kosong! Buat/pilih akun V2Ray terlebih dahulu.");
+        return;
+    }
     var targetHost = railwayDomainStored || document.getElementById('domainSelect').value.trim();
     targetHost = targetHost.replace(/^https?:\/\//, '').replace(/\/$/, '');
     var bugHost = document.getElementById('bugInput').value.trim() || 'v.whatsapp.net';
@@ -758,10 +817,15 @@ function buildRealityConfig(protocol, evt) {
 }
 
 function buildConfig(protocol, type, evt) {
+    if (!adminToken) { alert("Silakan Login Admin terlebih dahulu!"); return; }
     document.querySelectorAll('.btn-blue').forEach(function(b) { b.classList.remove('btn-active'); });
     if (evt && evt.target) evt.target.classList.add('btn-active');
     
     var uuid = document.getElementById('uuidInput').value.trim();
+    if (!uuid || uuid === "Loading...") {
+        alert("UUID masih kosong! Buat/pilih akun V2Ray terlebih dahulu.");
+        return;
+    }
     var hostSelect = document.getElementById('domainSelect');
     var host = hostSelect.value.trim().replace(/^https?:\/\//, '').replace(/\/$/, ''); 
     var bugHost = document.getElementById('bugInput').value.trim() || host; 
