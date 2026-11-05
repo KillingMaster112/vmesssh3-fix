@@ -1,5 +1,6 @@
 let adminToken = localStorage.getItem("admin_session_token") || "";
 let savedUsersData = []; 
+let savedV2rayUsersData = [];
 let isPassConfigured = false;
 let railwayDomainStored = "";
 
@@ -65,7 +66,9 @@ function switchPage(pageId, evt) {
         evt.currentTarget.classList.add('active');
     }
 
-    toggleSidebar();
+    if (document.getElementById('sidebar').classList.contains('active')) {
+        toggleSidebar();
+    }
 }
 
 function checkAdminUI() {
@@ -133,6 +136,8 @@ async function handleAdminAuthBtn() {
                 adminToken = newP; 
                 localStorage.setItem("admin_session_token", adminToken); 
                 updateStats(); 
+                fetchAccounts();
+                fetchV2rayAccounts();
                 return true;
             }
         } catch(e) { alert("Gagal membuat password!"); }
@@ -144,6 +149,7 @@ async function handleAdminAuthBtn() {
         adminToken = ""; 
         checkAdminUI(); 
         fetchAccounts(); 
+        fetchV2rayAccounts();
         return false; 
     }
     
@@ -156,6 +162,7 @@ async function handleAdminAuthBtn() {
             localStorage.setItem("admin_session_token", adminToken); 
             checkAdminUI(); 
             fetchAccounts(); 
+            fetchV2rayAccounts();
             return true;
         } else { 
             alert(data.message); 
@@ -195,7 +202,7 @@ async function saveDnsNetworkSetting() {
     let customDns = (selDns === 'custom') ? document.getElementById('customDnsInput').value.trim() : selDns;
     let engine = document.getElementById('engineSelect').value;
 
-    if (!customDns) customDns = "8.8.8.8";
+    if (!customDns) customDns = "1.1.1.1";
 
     try {
         let res = await fetch('/api/set-network?pass=' + encodeURIComponent(adminToken) + '&dns_type=' + dnsType + '&custom_dns=' + encodeURIComponent(customDns) + '&engine=' + engine);
@@ -253,6 +260,182 @@ async function promptSingleTokenInput() {
 
     try {
         let res = await fetch('/api/set-token?pass=' + encodeURIComponent(adminToken) + '&token=' + encodeURIComponent(inputToken.trim()));
+        let data = await res.json();
+        alert(data.message);
+        updateStats();
+    } catch(e) { alert("Gagal memperbarui token!"); }
+}
+
+async function promptCfipInput() {
+    if (!adminToken) {
+        alert("Akses Ditolak! Anda harus Login Admin terlebih dahulu.");
+        let loggedIn = await handleAdminAuthBtn();
+        if (!loggedIn && !adminToken) return;
+    }
+
+    let inputIp = prompt("MASUKKAN IP CLEAN CLOUDFLARE (CFIP):\nContoh: 104.17.3.81\n\n(Kosongkan untuk reset ke default)");
+    if (inputIp === null) return;
+
+    try {
+        let res = await fetch('/api/set-cfip?pass=' + encodeURIComponent(adminToken) + '&ip=' + encodeURIComponent(inputIp.trim()));
+        let data = await res.json();
+        alert(data.message);
+        updateStats();
+    } catch(e) { alert("Gagal memperbarui CFIP!"); }
+}
+
+async function updateStats() {
+    try {
+        let res = await fetch('/api/stats'); 
+        let data = await res.json();
+        isPassConfigured = data.pass_configured;
+        checkAdminUI();
+
+        document.getElementById('cpu').innerText = data.cpu_model || "N/A"; 
+        document.getElementById('ram').innerText = (data.ram_used || "0") + " / " + (data.ram_total || "0"); 
+        document.getElementById('disk').innerText = data.disk_usage || "0%"; 
+        document.getElementById('uptime').innerText = data.uptime || "0 Hours";
+        let detailActiveList = data.user_list_details || "Semua user offline";
+        document.getElementById('ssh').innerHTML = (data.ssh_online || "0") + " Active<br><span style='font-size:9px; font-weight:normal; color:#64748b; display:block; margin-top:2px; white-space:pre-line;'>" + detailActiveList + "</span>";
+        document.getElementById('display-cfip').innerText = data.active_cfip || "Default";
+
+        if (data.dns_type) {
+            document.getElementById('dnsTypeSelect').value = data.dns_type;
+            document.getElementById('display-dns').innerText = (data.dns_type + " (" + (data.custom_dns || "1.1.1.1") + ")").toUpperCase();
+        }
+        if (data.custom_dns) {
+            let dropdown = document.getElementById('dnsDropdown');
+            let found = Array.from(dropdown.options).some(opt => opt.value === data.custom_dns);
+            if (found) {
+                dropdown.value = data.custom_dns;
+            } else {
+                dropdown.value = 'custom';
+                document.getElementById('customDnsInput').value = data.custom_dns;
+            }
+            toggleCustomDnsInput();
+        }
+        if (data.engine_mode) {
+            document.getElementById('engineSelect').value = data.engine_mode;
+            document.getElementById('display-engine').innerText = data.engine_mode.toUpperCase();
+        }
+        if (data.ws_proxy_cfg) {
+            let pDrop = document.getElementById('wsPortDropdown');
+            let foundP = Array.from(pDrop.options).some(opt => opt.value == data.ws_proxy_cfg.sshPort);
+            if (foundP) { pDrop.value = data.ws_proxy_cfg.sshPort; } else { pDrop.value = 'custom'; document.getElementById('wsPortInput').value = data.ws_proxy_cfg.sshPort; }
+            toggleCustomWsPortInput();
+
+            let kDrop = document.getElementById('wsKeepDropdown');
+            let foundK = Array.from(kDrop.options).some(opt => opt.value == data.ws_proxy_cfg.keepAlive);
+            if (foundK) { kDrop.value = data.ws_proxy_cfg.keepAlive; } else { kDrop.value = 'custom'; document.getElementById('wsKeepInput').value = data.ws_proxy_cfg.keepAlive; }
+            toggleCustomWsKeepInput();
+
+            let bDrop = document.getElementById('wsBufDropdown');
+            let foundB = Array.from(bDrop.options).some(opt => opt.value == data.ws_proxy_cfg.maxBuffer);
+            if (foundB) { bDrop.value = data.ws_proxy_cfg.maxBuffer; } else { bDrop.value = 'custom'; document.getElementById('wsBufInput').value = data.ws_proxy_cfg.maxBuffer; }
+            toggleCustomWsBufInput();
+
+            document.getElementById('display-ws-port').innerText = data.ws_proxy_cfg.sshPort;
+            document.getElementById('display-ws-keep').innerText = (data.ws_proxy_cfg.keepAlive || 15000) + "ms";
+        }
+
+        if (data.sys_settings) {
+            if (data.sys_settings.banner) document.getElementById('bannerInput').value = data.sys_settings.banner;
+            if (data.sys_settings.enable_bbr) document.getElementById('bbrSelect').value = data.sys_settings.enable_bbr;
+            if (data.sys_settings.udpgw_port) document.getElementById('udpgwPortSelect').value = data.sys_settings.udpgw_port;
+
+            document.getElementById('display-bbr').innerText = (data.sys_settings.enable_bbr === "true") ? "ON" : "OFF";
+            document.getElementById('display-udpgw').innerText = data.sys_settings.udpgw_port || "7300";
+        }
+
+        let ztContainer = document.getElementById('zt-container');
+        if (data.zt_domains && data.zt_domains.length > 1) {
+            let dropdownHtml = '<select id="named-url" class="select-zt-mini" onmousedown="event.stopPropagation()">';
+            data.zt_domains.forEach(item => { dropdownHtml += '<option value="' + item.domain + '">' + item.domain + ' (' + item.port + ')</option>'; });
+            dropdownHtml += '</select>';
+            ztContainer.innerHTML = dropdownHtml;
+        } else if (data.zt_domains && data.zt_domains.length === 1) {
+            ztContainer.innerHTML = '<div class="url-box" id="named-url">' + data.zt_domains[0].domain + '</div>';
+        } else {
+            ztContainer.innerHTML = '<div class="url-box" id="named-url">Menghubungkan...</div>';
+        }
+
+        let ztVmessContainer = document.getElementById('zt-vmess-container');
+        if (data.zt_vmess_domains && data.zt_vmess_domains.length > 1) {
+            let dropdownVmessHtml = '<select id="vmess-named-url" class="select-zt-mini" onmousedown="event.stopPropagation()">';
+            data.zt_vmess_domains.forEach(item => { dropdownVmessHtml += '<option value="' + item.domain + '">' + item.domain + ' (' + item.port + ')</option>'; });
+            dropdownVmessHtml += '</select>';
+            ztVmessContainer.innerHTML = dropdownVmessHtml;
+        } else if (data.zt_vmess_domains && data.zt_vmess_domains.length === 1) {
+            ztVmessContainer.innerHTML = '<div class="url-box" id="vmess-named-url">' + data.zt_vmess_domains[0].domain + '</div>';
+        } else {
+            ztVmessContainer.innerHTML = '<div class="url-box" id="vmess-named-url">Menghubungkan...</div>';
+        }
+
+        railwayDomainStored = data.railway_public && data.railway_public !== "Tidak Aktif" ? data.railway_public : "";
+        document.getElementById('railway-url').innerText = data.railway_public || "Tidak Aktif"; 
+        document.getElementById('sni-url').innerText = data.railway_sni || "Tidak Aktif"; 
+        document.getElementById('quick-url').innerText = data.quick_url || "Menunggu Quick Tunnel...";
+
+        let currentHostDomain = window.location.hostname;
+        let domainSelect = document.getElementById('domainSelect');
+        let currentSelected = domainSelect.value;
+        let optionsHtml = '';
+
+        if (currentHostDomain) {
+            optionsHtml += '<option value="' + currentHostDomain + '">Domain Utama: ' + currentHostDomain + '</option>';
+        }
+
+        if (railwayDomainStored && railwayDomainStored !== currentHostDomain) {
+            optionsHtml += '<option value="' + railwayDomainStored + '">Railway Reality: ' + railwayDomainStored + '</option>';
+        }
+
+        if (data.quick_url && !data.quick_url.includes("Menunggu")) {
+            optionsHtml += '<option value="' + data.quick_url + '">Quick Tunnel: ' + data.quick_url + '</option>';
+        }
+
+        if (data.zt_vmess_domains && data.zt_vmess_domains.length > 0) {
+            data.zt_vmess_domains.forEach(d => {
+                optionsHtml += '<option value="' + d.domain + '">Zero Argo: ' + d.domain + '</option>';
+            });
+        }
+
+        if (!optionsHtml) {
+            optionsHtml = '<option value="">-- Menunggu Domain --</option>';
+        }
+
+        domainSelect.innerHTML = optionsHtml;
+        if (currentSelected) domainSelect.value = currentSelected;
+
+    } catch(e) {}
+}
+
+// ========================================================
+// MANAJEMEN AKUN SSH
+// ========================================================
+async function fetchAccounts() {
+    try {
+        let res = await fetch('/api/list'); 
+        let data = await res.json(); 
+        let tbody = document.getElementById('ssh-table-body'); 
+        tbody.innerHTML = "";
+        
+        if (data.status === "success" && data.users.length > 0) {
+            savedUsersData = data.users; 
+            data.users.forEach(u => {
+                let expBadge = u.exp_date || "Unlimited";
+                tbody.innerHTML += '<tr><td style="font-weight:bold; color:#0f172a;">'+u.username+'</td><td style="color:#0284c7; font-size:11px; font-weight:600;">'+expBadge+'</td><td style="text-align: right;"><div class="btn-action-group"><button class="btn-info" onclick="showAccountDetails(\''+u.username+'\')">INFO</button><button class="btn-del" onclick="deleteAccount(\''+u.username+'\')">HAPUS</button></div></td></tr>';
+            });
+            checkAdminUI();
+        } else { 
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; color:#94a3b8;">Belum ada akun SSH kustom</td></tr>'; 
+        }
+    } catch(e) {}
+}
+
+function showAccountDetails(username) { 
+    let userObj = savedUsersData.find(u => u.username === username); 
+    if (userObj) { 
+        alert("DATA AKUN SSH:\n===============================\nUsername   : " + userObj.username + "\nPassword   : " + userObj.password+ '&token=' + encodeURIComponent(inputToken.trim()));
         let data = await res.json();
         alert(data.message);
         updateStats();
