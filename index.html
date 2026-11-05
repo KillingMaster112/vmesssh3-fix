@@ -24,6 +24,7 @@
         <ul class="sidebar-menu">
             <li class="menu-item active" onclick="switchPage('page-dashboard', event)">Dashboard Utama</li>
             <li class="menu-item" onclick="switchPage('page-buat-ssh', event)">Buat Akun SSH</li>
+            <li class="menu-item" onclick="switchPage('page-buat-v2ray', event)">Buat Akun V2Ray / Xray</li>
             <li class="menu-item" onclick="switchPage('page-set-ssh', event)">Pengaturan SSH</li>
             <li class="menu-item" onclick="switchPage('page-set-v2ray', event)">Pengaturan V2Ray / VMess</li>
             <li class="menu-item" onclick="switchPage('page-set-cfip', event)">Pengaturan CFIP</li>
@@ -62,7 +63,7 @@
                     <div class="sub-box-title" style="text-align:center; display:block;">INFO PENGATURAN SERVER</div>
                     <div style="font-size: 11px; color: #475569; text-align: center; font-weight: 600; line-height: 1.6;">
                         <span>CFIP: </span><span id="display-cfip" style="font-family:ui-monospace, monospace; color:#0f172a;">Loading...</span> | 
-                        <span>DNS: </span><span id="display-dns" style="font-family:ui-monospace, monospace; color:#0f172a;">UDP</span> | 
+                        <span>DNS: </span><span id="display-dns" style="font-family:ui-monospace, monospace; color:#0f172a;">UDP (1.1.1.1)</span> | 
                         <span>ENGINE: </span><span id="display-engine" style="font-family:ui-monospace, monospace; color:#0f172a;">WS</span><br>
                         <span>PORT: </span><span id="display-ws-port" style="font-family:ui-monospace, monospace; color:#0f172a;">22</span> | 
                         <span>KEEPALIVE: </span><span id="display-ws-keep" style="font-family:ui-monospace, monospace; color:#0f172a;">15000ms</span> | 
@@ -71,7 +72,6 @@
                     </div>
                 </div>
 
-                <!-- 1. REALITY SERVER (RAILWAY PUBLIC DOMAIN) -->
                 <div class="url-section">
                     <div class="url-header"><span class="url-title">server vles vmes trojan REALITY</span></div>
                     <div class="url-content-row">
@@ -80,7 +80,6 @@
                     </div>
                 </div>
 
-                <!-- 2. SSH SNI SERVER (RAILWAY TCP PROXY / SNI) -->
                 <div class="url-section">
                     <div class="url-header"><span class="url-title">SSH SNI Server</span></div>
                     <div class="url-content-row">
@@ -89,7 +88,6 @@
                     </div>
                 </div>
 
-                <!-- 3. SSH WS DOMAIN -->
                 <div class="url-section">
                     <div class="url-header"><span class="url-title">SSH WS Domain</span></div>
                     <div class="url-content-row">
@@ -98,7 +96,6 @@
                     </div>
                 </div>
 
-                <!-- 4. VMESS / VLESS DOMAIN -->
                 <div class="url-section">
                     <div class="url-header"><span class="url-title">VMess / VLess Domain</span></div>
                     <div class="url-content-row">
@@ -107,7 +104,6 @@
                     </div>
                 </div>
 
-                <!-- 5. QUICK TUNNEL SUB -->
                 <div class="url-section">
                     <div class="url-header"><span class="url-title">Quick Tunnel Sub</span></div>
                     <div class="url-content-row">
@@ -124,16 +120,39 @@
                     <div class="input-group">
                         <input type="text" id="ssh-user" class="input-ssh" placeholder="Username...">
                         <input type="password" id="ssh-pass" class="input-ssh" placeholder="Password...">
+                        <input type="number" id="ssh-exp" class="input-ssh" placeholder="Hari (Misal: 7)" value="7" min="1" max="365" style="max-width:85px;">
                         <button class="btn-add" id="btn-add-ssh" onclick="createAccount()">ADD</button>
                     </div>
                     <div id="ssh-result" class="result-box"></div>
                     <button id="btn-copy-acc" class="btn-copy-result" onclick="copyAccountText()">COPY DETAIL AKUN</button>
                     <div id="ssh-msg" style="font-size: 11px; margin-top: 5px; font-weight: bold; color: #dc2626;"></div>
                     
-                    <div class="ssh-title" style="margin-top: 15px; border-top: 1px solid #f1f5f9; padding-top: 10px;">DAFTAR AKUN TERDAFTAR</div>
+                    <div class="ssh-title" style="margin-top: 15px; border-top: 1px solid #f1f5f9; padding-top: 10px;">DAFTAR AKUN SSH TERDAFTAR</div>
                     <table class="ssh-list">
-                        <thead><tr><th>Username</th><th>Shell Path</th><th style="text-align: right;">Aksi</th></tr></thead>
+                        <thead><tr><th>Username</th><th>Expired</th><th style="text-align: right;">Aksi</th></tr></thead>
                         <tbody id="ssh-table-body"><tr><td colspan="3" style="text-align:center; color:#94a3b8;">Loading accounts...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ➕ HALAMAN BARU: BUAT AKUN V2RAY / XRAY -->
+            <div id="page-buat-v2ray" class="page-section">
+                <div class="ssh-manager">
+                    <div class="ssh-title"><span>BUAT AKUN VLESS / VMESS / TROJAN</span><span class="admin-status-lbl">MULTI-UUID</span></div>
+                    <div class="input-group">
+                        <input type="text" id="v2ray-user" class="input-ssh" placeholder="Username...">
+                        <input type="text" id="v2ray-uuid" class="input-ssh" placeholder="UUID (Kosong = Auto)">
+                        <input type="number" id="v2ray-exp" class="input-ssh" placeholder="Hari" value="7" min="1" max="365" style="max-width:85px;">
+                        <button class="btn-add" onclick="createV2rayAccount()">ADD</button>
+                    </div>
+                    <div id="v2ray-result" class="result-box"></div>
+                    <button id="btn-copy-v2ray" class="btn-copy-result" onclick="copyV2rayAccountText()">COPY DETAIL AKUN</button>
+                    <div id="v2ray-msg" style="font-size: 11px; margin-top: 5px; font-weight: bold; color: #dc2626;"></div>
+
+                    <div class="ssh-title" style="margin-top: 15px; border-top: 1px solid #f1f5f9; padding-top: 10px;">DAFTAR AKUN V2RAY AKTIF</div>
+                    <table class="ssh-list">
+                        <thead><tr><th>User</th><th>UUID / Pass</th><th>Expired</th><th style="text-align: right;">Aksi</th></tr></thead>
+                        <tbody id="v2ray-table-body"><tr><td colspan="4" style="text-align:center; color:#94a3b8;">Loading V2Ray accounts...</td></tr></tbody>
                     </table>
                 </div>
             </div>
@@ -235,8 +254,8 @@
                             <div>
                                 <label class="lbl-vpn">CUSTOM DNS IP / DOH URL</label>
                                 <select id="dnsDropdown" class="input-ssh" onchange="toggleCustomDnsInput()">
-                                    <option value="8.8.8.8">Google DNS (8.8.8.8)</option>
                                     <option value="1.1.1.1">Cloudflare DNS (1.1.1.1)</option>
+                                    <option value="8.8.8.8">Google DNS (8.8.8.8)</option>
                                     <option value="9.9.9.9">Quad9 DNS (9.9.9.9)</option>
                                     <option value="https://1.1.1.1/dns-query">Cloudflare DoH</option>
                                     <option value="https://dns.google/dns-query">Google DoH</option>
@@ -271,8 +290,8 @@
                   
                   <div class="grid-2">
                     <div>
-                      <label class="lbl-vpn">UUID / PASS</label>
-                      <input id="uuidInput" type="text" value="Loading..." class="input-ssh" style="font-family: ui-monospace, monospace;" readonly>
+                      <label class="lbl-vpn">UUID / PASS (BISA DIEDIT)</label>
+                      <input id="uuidInput" type="text" value="Loading..." class="input-ssh" style="font-family: ui-monospace, monospace;">
                     </div>
                     <div>
                       <label class="lbl-vpn">TARGET DOMAIN</label>
@@ -296,7 +315,6 @@
                     </div>
                   </div>
 
-                  <!-- 🔹 FITUR FORMAT CONVERTER (CLASH & SINGBOX) -->
                   <div style="margin-bottom: 10px;">
                     <label class="lbl-vpn">FORMAT OUTPUT CONFIG</label>
                     <select id="formatSelect" class="input-ssh" style="font-family: ui-monospace, monospace; font-weight: bold;">
