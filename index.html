@@ -23,12 +23,12 @@
         </div>
         <ul class="sidebar-menu">
             <li class="menu-item active" onclick="switchPage('page-dashboard', event)">Dashboard Utama</li>
-            <li class="menu-item" onclick="switchPage('page-buat-ssh', event)">Buat Akun SSH</li>
-            <li class="menu-item" onclick="switchPage('page-buat-v2ray', event)">Buat Akun V2Ray / Xray</li>
-            <li class="menu-item" onclick="switchPage('page-set-ssh', event)">Pengaturan SSH</li>
-            <li class="menu-item" onclick="switchPage('page-set-v2ray', event)">Pengaturan V2Ray / VMess</li>
-            <li class="menu-item" onclick="switchPage('page-set-cfip', event)">Pengaturan CFIP</li>
-            <li class="menu-item" onclick="switchPage('page-generator', event)">Config Generator</li>
+            <li class="menu-item admin-only-menu" style="display:none;" onclick="switchPage('page-buat-ssh', event)">Buat Akun SSH (Admin)</li>
+            <li class="menu-item admin-only-menu" style="display:none;" onclick="switchPage('page-buat-v2ray', event)">Buat Akun V2Ray / Xray (Admin)</li>
+            <li class="menu-item admin-only-menu" style="display:none;" onclick="switchPage('page-set-ssh', event)">Pengaturan SSH</li>
+            <li class="menu-item admin-only-menu" style="display:none;" onclick="switchPage('page-set-v2ray', event)">Pengaturan V2Ray / VMess</li>
+            <li class="menu-item admin-only-menu" style="display:none;" onclick="switchPage('page-set-cfip', event)">Pengaturan CFIP</li>
+            <li class="menu-item admin-only-menu" style="display:none;" onclick="switchPage('page-generator', event)">Config Generator</li>
         </ul>
         <div style="padding: 15px 20px; border-top: 1px solid #f1f5f9;">
             <span id="btn-change-pass" onclick="changeAdminPassUI()" style="color: #0284c7; cursor: pointer; font-size: 11px; font-weight: 600; text-decoration: underline; display: none;">GANTI PASS ADMIN</span>
@@ -113,10 +113,10 @@
                 </div>
             </div>
 
-            <!-- ➕ HALAMAN 2: BUAT AKUN SSH -->
+            <!-- ➕ HALAMAN 2: BUAT AKUN SSH (KHUSUS ADMIN) -->
             <div id="page-buat-ssh" class="page-section">
                 <div class="ssh-manager">
-                    <div class="ssh-title"><span>BUAT AKUN SSH BARU</span><span id="admin-indicator" class="admin-status-lbl">PUBLIC CREATION</span></div>
+                    <div class="ssh-title"><span>BUAT AKUN SSH BARU</span><span id="admin-indicator" class="admin-status-lbl">ADMIN ONLY</span></div>
                     <div class="input-group">
                         <input type="text" id="ssh-user" class="input-ssh" placeholder="Username...">
                         <input type="password" id="ssh-pass" class="input-ssh" placeholder="Password...">
@@ -135,10 +135,10 @@
                 </div>
             </div>
 
-            <!-- ➕ HALAMAN BARU: BUAT AKUN V2RAY / XRAY -->
+            <!-- ➕ HALAMAN 3: BUAT AKUN V2RAY / XRAY (KHUSUS ADMIN) -->
             <div id="page-buat-v2ray" class="page-section">
                 <div class="ssh-manager">
-                    <div class="ssh-title"><span>BUAT AKUN VLESS / VMESS / TROJAN</span><span class="admin-status-lbl">MULTI-UUID</span></div>
+                    <div class="ssh-title"><span>BUAT AKUN VLESS / VMESS / TROJAN</span><span id="admin-indicator-v2ray" class="admin-status-lbl">ADMIN ONLY</span></div>
                     <div class="input-group">
                         <input type="text" id="v2ray-user" class="input-ssh" placeholder="Username...">
                         <input type="text" id="v2ray-uuid" class="input-ssh" placeholder="UUID (Kosong = Auto)">
@@ -157,7 +157,7 @@
                 </div>
             </div>
 
-            <!-- 🔌 HALAMAN 3: SETTING SSH SERVER -->
+            <!-- 🔌 HALAMAN 4: SETTING SSH SERVER -->
             <div id="page-set-ssh" class="page-section">
                 <div class="zt-admin-card">
                     <div class="sub-box" style="margin-bottom:0;">
@@ -226,7 +226,7 @@
                 </div>
             </div>
 
-            <!-- ⚙️ HALAMAN 4: SETTING V2RAY SERVER -->
+            <!-- ⚙️ HALAMAN 5: SETTING V2RAY SERVER -->
             <div id="page-set-v2ray" class="page-section">
                 <div class="zt-admin-card">
                     <div class="sub-box" style="margin-bottom:0;">
@@ -270,7 +270,7 @@
                 </div>
             </div>
 
-            <!-- 🚀 HALAMAN 5: SETTING CFIP -->
+            <!-- 🚀 HALAMAN 6: SETTING CFIP -->
             <div id="page-set-cfip" class="page-section">
                 <div class="zt-admin-card">
                     <div class="sub-box" style="margin-bottom:0;">
@@ -281,17 +281,17 @@
                 </div>
             </div>
 
-            <!-- ⚡ HALAMAN 6: CONFIG GENERATOR -->
+            <!-- ⚡ HALAMAN 7: CONFIG GENERATOR -->
             <div id="page-generator" class="page-section">
                 <div class="card-blue" style="margin-top:0;">
                   <div style="text-align: center; margin-bottom: 12px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">
-                    <span style="font-size: 12px; font-weight: 700; color: #0f172a;">CONFIG GENERATOR</span>
+                    <span style="font-size: 12px; font-weight: 700; color: #0f172a;">CONFIG GENERATOR (ADMIN)</span>
                   </div>
                   
                   <div class="grid-2">
                     <div>
-                      <label class="lbl-vpn">UUID / PASS (BISA DIEDIT)</label>
-                      <input id="uuidInput" type="text" value="Loading..." class="input-ssh" style="font-family: ui-monospace, monospace;">
+                      <label class="lbl-vpn">UUID / PASS</label>
+                      <input id="uuidInput" type="text" value="" placeholder="Pilih / Buat Akun V2Ray..." class="input-ssh" style="font-family: ui-monospace, monospace;">
                     </div>
                     <div>
                       <label class="lbl-vpn">TARGET DOMAIN</label>
