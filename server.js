@@ -7,16 +7,11 @@ const os = require('os');
 const fs = require("fs");
 const path = require("path");
 const crypto = require('crypto');
-const { promisify } = require('util');
-const execPromise = promisify(require('child_process').exec);
 const { exec, execSync } = require('child_process');
 
 // ========================================================
 // VARIABEL KONFIGURASI GLOBAL
 // ========================================================
-const UPLOAD_URL = process.env.UPLOAD_URL || '';      
-const PROJECT_URL = process.env.PROJECT_URL || '';    
-const AUTO_ACCESS = process.env.AUTO_ACCESS || false; 
 const FILE_PATH = process.env.FILE_PATH || '.tmp';   
 const SUB_PATH = process.env.SUB_PATH || 'sub';       
 
@@ -37,13 +32,14 @@ const SYSTEM_CONFIG_FILE = "/tmp/system_config.json";
 const ADMIN_PASS_FILE = "/tmp/admin_pass.txt";
 const STATS_PATH = "/tmp/server_stats.json";
 const DB_PATH = "/tmp/ssh_details.json";
+const V2RAY_DB_PATH = "/tmp/v2ray_users.json";
 
 let cachedDiskUsage = "38%";
 let cachedSshOnline = "0 User";
 let cachedUserListDetails = "Semua user offline";
 
 if (!fs.existsSync(FILE_PATH)) {
-  fs.mkdirSync(FILE_PATH);
+  fs.mkdirSync(FILE_PATH, { recursive: true });
 }
 
 function getNetworkSettings() {
@@ -52,7 +48,7 @@ function getNetworkSettings() {
             return JSON.parse(fs.readFileSync(NET_SETTING_FILE, 'utf8'));
         }
     } catch(e) {}
-    return { dns_type: "udp", custom_dns: "8.8.8.8", engine: "ws" };
+    return { dns_type: "udp", custom_dns: "1.1.1.1", engine: "ws" };
 }
 
 function saveNetworkSettings(dns_type, custom_dns, engine) {
@@ -143,6 +139,9 @@ let webPath = path.join(FILE_PATH, webName);
 let botPath = path.join(FILE_PATH, botName);
 let subPath = path.join(FILE_PATH, 'sub.txt');
 
+// ========================================================
+// DATABASE JSON HANDLER (SSH & V2RAY)
+// ========================================================
 function loadDb() {
     if (fs.existsSync(DB_PATH)) {
         try { return JSON.parse(fs.readFileSync(DB_PATH, 'utf8')); } catch (e) { return {}; }
@@ -152,6 +151,23 @@ function loadDb() {
 
 function saveDb(data) {
     try { fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2)); } catch (e) {}
+}
+
+function loadV2rayDb() {
+    if (fs.existsSync(V2RAY_DB_PATH)) {
+        try { return JSON.parse(fs.readFileSync(V2RAY_DB_PATH, 'utf8')); } catch (e) { return {}; }
+    }
+    return {};
+}
+
+function saveV2rayDb(data) {
+    try { fs.writeFileSync(V2RAY_DB_PATH, JSON.stringify(data, null, 2)); } catch (e) {}
+}
+
+function formatDateStr(timestamp) {
+    if (!timestamp) return "Unlimited";
+    const d = new Date(timestamp);
+    return d.toISOString().split('T')[0];
 }
 
 let currentActiveDomain = '';
@@ -169,6 +185,16 @@ function restartSingleTunnel(newToken) {
                 exec(`nohup ${botPath} ${args} >/dev/null 2>&1 &`);
             }
         }, 1000);
+    });
+}
+
+function restartXrayEngine() {
+    exec(`pkill -9 -f '${webName}'`, () => {
+        setTimeout(() => {
+            if (fs.existsSync(webPath)) {
+                exec(`nohup ${webPath} -c ${FILE_PATH}/config.json >/dev/null 2>&1 &`);
+            }
+        }, 500);
     });
 }
 
@@ -231,6 +257,9 @@ function getCurrentHosts() {
     return hostOutput;
 }
 
+// ========================================================
+// MANAJEMEN AKUN SSH + EXPIRED
+// ========================================================
 function listSsh() {
     try {
         const users = [];
@@ -246,7 +275,7 @@ function listSsh() {
             const shell = parts[parts.length - 1];
             
             if (uid >= 1000 && !["nobody", "ubuntu", "sshd", "dropbear", "stunnel"].includes(username)) {
-                const extra = dbInfo[username] || { password: "-", ip: "Unknown", user_agent: "Unknown" };
+                const extra = dbInfo[username] || { password: "-", ip: "Unknown", user_agent: "Unknown", exp_date: "Unlimited", exp_timestamp: null };
                 users.push({ username, uid, shell, ...extra });
             }
         }
@@ -256,17 +285,28 @@ function listSsh() {
     }
 }
 
-function addSsh(username, password, ipAddr, userAgent) {
+function addSsh(username, password, expDays, ipAddr, userAgent) {
     if (!username || !password) return { status: "error", message: "Username dan password wajib diisi!" };
     if (!/^[a-zA-Z0-9_-]+$/.test(username) || !/^[a-zA-Z0-9_@.-]+$/.test(password)) {
         return { status: "error", message: "Username/Password mengandung karakter ilegal!" };
     }
+    
+    const days = parseInt(expDays, 10) || 7;
+    const expTimestamp = Date.now() + (days * 86400000);
+    const expDateStr = formatDateStr(expTimestamp);
+
     try {
-        execSync(`useradd -m -s /bin/bash ${username}`);
+        execSync(`useradd -e ${expDateStr} -m -s /bin/bash ${username}`);
         execSync(`echo '${username}:${password}' | chpasswd`);
         
         const dbInfo = loadDb();
-        dbInfo[username] = { password, ip: ipAddr, user_agent: userAgent };
+        dbInfo[username] = { 
+            password, 
+            ip: ipAddr, 
+            user_agent: userAgent,
+            exp_timestamp: expTimestamp,
+            exp_date: expDateStr
+        };
         saveDb(dbInfo);
         
         const activeHost = getCurrentHosts();
@@ -279,6 +319,7 @@ function addSsh(username, password, ipAddr, userAgent) {
             `🔹 Port NTLS : 80\n` +
             `🔹 Username  : ${username}\n` +
             `🔹 Password  : ${password}\n` +
+            `🔹 Expired   : ${expDateStr} (${days} Hari)\n` +
             `================================\n` +
             ` powered by : d e d e f a t h u\n` +
             `================================`;
@@ -291,15 +332,129 @@ function addSsh(username, password, ipAddr, userAgent) {
 function deleteSsh(username) {
     if (!username || !/^[a-zA-Z0-9_-]+$/.test(username)) return { status: "error", message: "Username ilegal!" };
     try {
-        execSync(`userdel -r ${username}`);
+        execSync(`pkill -9 -u ${username} 2>/dev/null || true`);
+        execSync(`userdel -r -f ${username} 2>/dev/null || userdel -f ${username}`);
         const dbInfo = loadDb();
         if (dbInfo[username]) {
             delete dbInfo[username];
             saveDb(dbInfo);
         }
-        return { status: "success", message: `User ${username} berhasil dihapus!` };
+        return { status: "success", message: `User SSH ${username} berhasil dihapus!` };
     } catch (e) {
         return { status: "error", message: `Gagal menghapus user.` };
+    }
+}
+
+// ========================================================
+// MANAJEMEN AKUN V2RAY (VLESS / VMESS / TROJAN) + EXPIRED
+// ========================================================
+function listV2ray() {
+    try {
+        const db = loadV2rayDb();
+        const users = Object.keys(db).map(u => ({
+            username: u,
+            uuid: db[u].uuid,
+            exp_date: db[u].exp_date || "Unlimited",
+            exp_timestamp: db[u].exp_timestamp || null,
+            created_at: db[u].created_at || "-"
+        }));
+        return { status: "success", total: users.length, users };
+    } catch (e) {
+        return { status: "error", message: e.message };
+    }
+}
+
+async function addV2ray(username, customUuid, expDays) {
+    if (!username || !/^[a-zA-Z0-9_-]+$/.test(username)) {
+        return { status: "error", message: "Username wajib diisi (huruf/angka/strip)!" };
+    }
+    const db = loadV2rayDb();
+    if (db[username]) {
+        return { status: "error", message: "Username V2Ray sudah terdaftar!" };
+    }
+
+    const days = parseInt(expDays, 10) || 7;
+    const expTimestamp = Date.now() + (days * 86400000);
+    const expDateStr = formatDateStr(expTimestamp);
+    const newUuid = (customUuid && customUuid.trim().length >= 6) ? customUuid.trim() : crypto.randomUUID();
+
+    db[username] = {
+        uuid: newUuid,
+        exp_timestamp: expTimestamp,
+        exp_date: expDateStr,
+        created_at: formatDateStr(Date.now())
+    };
+    saveV2rayDb(db);
+
+    await generateConfig();
+    restartXrayEngine();
+
+    const detailMsg = 
+        `================================\n` +
+        `     V2RAY ACCOUNT CREATED      \n` +
+        `================================\n` +
+        `🔹 Username  : ${username}\n` +
+        `🔹 UUID/Pass : ${newUuid}\n` +
+        `🔹 Protokol  : VLESS / VMess / Trojan\n` +
+        `🔹 Expired   : ${expDateStr} (${days} Hari)\n` +
+        `================================\n` +
+        `Klik tombol [PAKAI UUID] pada tabel di bawah\n` +
+        `untuk generate config V2Ray / Clash / SingBox.\n` +
+        `================================`;
+
+    return { status: "success", uuid: newUuid, exp_date: expDateStr, message: detailMsg };
+}
+
+async function deleteV2ray(username) {
+    if (!username) return { status: "error", message: "Username kosong!" };
+    const db = loadV2rayDb();
+    if (!db[username]) return { status: "error", message: "Akun tidak ditemukan!" };
+
+    delete db[username];
+    saveV2rayDb(db);
+
+    await generateConfig();
+    restartXrayEngine();
+
+    return { status: "success", message: `Akun V2Ray ${username} berhasil dihapus!` };
+}
+
+// ========================================================
+// AUTO-CLEANUP EXPIRED ACCOUNTS (CRON JOB)
+// ========================================================
+async function checkAndCleanExpiredAccounts() {
+    const now = Date.now();
+    
+    // 1. Cek Expired SSH
+    const sshDb = loadDb();
+    let sshChanged = false;
+    for (const [username, info] of Object.entries(sshDb)) {
+        if (info.exp_timestamp && now >= info.exp_timestamp) {
+            try {
+                execSync(`pkill -9 -u ${username} 2>/dev/null || true`);
+                execSync(`userdel -r -f ${username} 2>/dev/null || true`);
+            } catch (e) {}
+            delete sshDb[username];
+            sshChanged = true;
+            console.log(`[Auto-Expire] Akun SSH '${username}' telah kedaluwarsa dan dihapus.`);
+        }
+    }
+    if (sshChanged) saveDb(sshDb);
+
+    // 2. Cek Expired V2Ray
+    const v2rayDb = loadV2rayDb();
+    let v2rayChanged = false;
+    for (const [username, info] of Object.entries(v2rayDb)) {
+        if (info.exp_timestamp && now >= info.exp_timestamp) {
+            delete v2rayDb[username];
+            v2rayChanged = true;
+            console.log(`[Auto-Expire] Akun V2Ray '${username}' (${info.uuid}) telah kedaluwarsa dan dihapus.`);
+        }
+    }
+    if (v2rayChanged) {
+        saveV2rayDb(v2rayDb);
+        await generateConfig();
+        restartXrayEngine();
     }
 }
 
@@ -314,12 +469,30 @@ function readPathsFromFile(filename, defaultPath) {
   return [defaultPath]; 
 }
 
+function getAllActiveXrayUuids() {
+    const v2rayDb = loadV2rayDb();
+    const now = Date.now();
+    const uuidSet = new Set([UUID]); // Tetap sertakan Master UUID default env
+
+    for (const info of Object.values(v2rayDb)) {
+        if (!info.exp_timestamp || now < info.exp_timestamp) {
+            if (info.uuid) uuidSet.add(info.uuid);
+        }
+    }
+    return Array.from(uuidSet);
+}
+
 async function generateConfig() {
   const netSettings = getNetworkSettings();
   const vlessPaths = readPathsFromFile('pathvless.txt', '/vless-argo');
   const vmessPaths = readPathsFromFile('pathvmess.txt', '/vmess-argo');
   const trojanPaths = readPathsFromFile('pathtrojan.txt', '/trojan-argo');
   
+  const activeUuids = getAllActiveXrayUuids();
+  const vlessClients = activeUuids.map(id => ({ id, level: 0 }));
+  const vmessClients = activeUuids.map(id => ({ id, alterId: 0 }));
+  const trojanClients = activeUuids.map(password => ({ password }));
+
   const fallbacksList = [];
   const inboundsList = [];
   let nextPort = 3100;
@@ -345,7 +518,7 @@ async function generateConfig() {
 
     inboundsList.push({ 
         port: cp, listen: "127.0.0.1", protocol: 'vless', 
-        settings: { clients: [{ id: UUID, level: 0 }], decryption: "none" }, 
+        settings: { clients: vlessClients, decryption: "none" }, 
         streamSettings: st, 
         sniffing: { enabled: true, destOverride: ["http", "tls", "quic"] } 
     }); 
@@ -359,7 +532,7 @@ async function generateConfig() {
 
     inboundsList.push({ 
         port: cp, listen: "127.0.0.1", protocol: "vmess", 
-        settings: { clients: [{ id: UUID, alterId: 0 }] }, 
+        settings: { clients: vmessClients }, 
         streamSettings: st, 
         sniffing: { enabled: true, destOverride: ["http", "tls", "quic"] } 
     }); 
@@ -373,7 +546,7 @@ async function generateConfig() {
 
     inboundsList.push({ 
         port: cp, listen: "127.0.0.1", protocol: "trojan", 
-        settings: { clients: [{ password: UUID }] }, 
+        settings: { clients: trojanClients }, 
         streamSettings: st, 
         sniffing: { enabled: true, destOverride: ["http", "tls", "quic"] } 
     }); 
@@ -382,7 +555,7 @@ async function generateConfig() {
   inboundsList.unshift({
     port: ARGO_PORT,
     protocol: 'vless',
-    settings: { clients: [{ id: UUID }], decryption: 'none', fallbacks: fallbacksList },
+    settings: { clients: vlessClients, decryption: 'none', fallbacks: fallbacksList },
     streamSettings: { network: 'tcp', security: 'none' },
     sniffing: { enabled: true, destOverride: ["http", "tls", "quic"] }
   });
@@ -392,10 +565,10 @@ async function generateConfig() {
 
   if (netSettings.dns_type === 'doh') {
     if (!dnsValue.startsWith('http')) dnsValue = 'https://1.1.1.1/dns-query';
-    dnsServers = [dnsValue, "8.8.8.8"];
-  } else {
-    if (!dnsValue || dnsValue.startsWith('http')) dnsValue = '8.8.8.8';
     dnsServers = [dnsValue, "1.1.1.1"];
+  } else {
+    if (!dnsValue || dnsValue.startsWith('http')) dnsValue = '1.1.1.1';
+    dnsServers = [dnsValue, "8.8.8.8"];
   }
 
   const config = { 
@@ -566,17 +739,12 @@ const server = http.createServer(async (req, res) => {
             return res.end(JSON.stringify({ status: "error", message: "Akses Ditolak! Anda harus Login Admin terlebih dahulu." }));
         }
         const dns_type = query.dns_type || "udp";
-        const custom_dns = query.custom_dns ? decodeURIComponent(query.custom_dns) : "8.8.8.8";
+        const custom_dns = query.custom_dns ? decodeURIComponent(query.custom_dns) : "1.1.1.1";
         const engine = query.engine || "ws";
         
         saveNetworkSettings(dns_type, custom_dns, engine);
         await generateConfig();
-        
-        exec(`pkill -9 -f '${webName}'`, () => {
-            setTimeout(() => {
-                exec(`nohup ${webPath} -c ${FILE_PATH}/config.json >/dev/null 2>&1 &`);
-            }, 1000);
-        });
+        restartXrayEngine();
 
         return res.end(JSON.stringify({ status: "success", message: `Setting V2Ray Disimpan! DNS: [${dns_type.toUpperCase()}] ${custom_dns}, Engine: ${engine.toUpperCase()}. Engine restarted!` }));
     }
@@ -607,9 +775,7 @@ const server = http.createServer(async (req, res) => {
         if (banner) {
             try {
                 fs.writeFileSync('/etc/dropbear_banner', banner);
-            } catch(e) {
-                console.error("Gagal tulis banner:", e);
-            }
+            } catch(e) {}
         } else {
             const defaultBanner = "==================================================\n" +
                                   "                 SSH SERVER PANEL                 \n" +
@@ -623,9 +789,7 @@ const server = http.createServer(async (req, res) => {
             setTimeout(() => {
                 const wsCfg = getWsProxyConfig();
                 const sshPort = wsCfg.sshPort || 22;
-                exec(`/usr/sbin/dropbear -p 127.0.0.1:${sshPort} -b /etc/dropbear_banner -W 1048576 -K 15 -I 300`, (err) => {
-                    if (err) console.error("Gagal restart Dropbear:", err.message);
-                });
+                exec(`/usr/sbin/dropbear -p 127.0.0.1:${sshPort} -b /etc/dropbear_banner -W 1048576 -K 15 -I 300`, () => {});
             }, 1000);
         });
 
@@ -676,7 +840,11 @@ const server = http.createServer(async (req, res) => {
         }
     }
 
-    if (pathName === '/api/add') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify(addSsh(query.user, query.pass, ipAddr, userAgent))); }
+    // --- API AKUN SSH ---
+    if (pathName === '/api/add') { 
+        res.writeHead(200, { 'Content-Type': 'application/json' }); 
+        return res.end(JSON.stringify(addSsh(query.user, query.pass, query.exp, ipAddr, userAgent))); 
+    }
     
     if (pathName === '/api/delete') { 
         res.writeHead(200, { 'Content-Type': 'application/json' }); 
@@ -684,7 +852,29 @@ const server = http.createServer(async (req, res) => {
         return res.end(JSON.stringify(deleteSsh(query.user))); 
     }
     
-    if (pathName === '/api/list') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify(listSsh())); }
+    if (pathName === '/api/list') { 
+        res.writeHead(200, { 'Content-Type': 'application/json' }); 
+        return res.end(JSON.stringify(listSsh())); 
+    }
+
+    // --- API AKUN V2RAY (VLESS / VMESS / TROJAN) ---
+    if (pathName === '/api/v2ray/add') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        const result = await addV2ray(query.user, query.uuid, query.exp);
+        return res.end(JSON.stringify(result));
+    }
+
+    if (pathName === '/api/v2ray/delete') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        if (!verifyAdminPassword(query.token)) return res.end(JSON.stringify({ status: "error", message: "Akses Ditolak!" }));
+        const result = await deleteV2ray(query.user);
+        return res.end(JSON.stringify(result));
+    }
+
+    if (pathName === '/api/v2ray/list') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify(listV2ray()));
+    }
     
     if (pathName === '/api/login') { 
         res.writeHead(200, { 'Content-Type': 'application/json' }); 
@@ -723,7 +913,7 @@ const server = http.createServer(async (req, res) => {
             ? `${process.env.RAILWAY_TCP_PROXY_DOMAIN}:${process.env.RAILWAY_TCP_PROXY_PORT}`
             : (process.env.SNI ? process.env.SNI.replace(/https?:\/\//, '') : (hwInfo.railway_proxy || "Tidak Aktif"));
         
-        let cleanOnlineStr = String(hwInfo.ssh_online).replace(/👥/g, '').replace(/Active/g, '').replace(/Users/g, '').trim();
+        let cleanOnlineStr = String(hwInfo.ssh_online).replace(/Active/g, '').replace(/Users/g, '').trim();
         return res.end(JSON.stringify({ 
             active_cfip: getActiveCfip(), 
             quick_url: quickUrl, 
@@ -812,14 +1002,12 @@ function forwardWebsocket(targetPort, req, socket, head) {
 server.on('upgrade', (req, socket, head) => {
     const urlPath = req.url.split('?')[0];
 
-    // Jika Request WebSocket khusus SSH WS
     if (urlPath === '/ssh-ws' || urlPath.startsWith('/ssh')) {
         const wsCfg = getWsProxyConfig();
         const targetPort = wsCfg.sshPort || 22;
         return forwardWebsocket(targetPort, req, socket, head);
     }
     
-    // Semua Request WebSocket (VLESS / VMess / Trojan) langsung dilayangkan ke Xray (Port 8001)
     return forwardWebsocket(ARGO_PORT, req, socket, head);
 });
 
@@ -841,6 +1029,11 @@ server.listen(PORT, () => {
         extractDomains();
     }, 3000);
 
+    // Pengecekan akun expired setiap 60 detik
+    setInterval(() => {
+        checkAndCleanExpiredAccounts();
+    }, 60000);
+
     setInterval(() => {
         exec("df -h / | awk 'NR==2 {print $5}'", (err, stdout) => {
             if (!err && stdout.trim()) cachedDiskUsage = stdout.trim();
@@ -850,8 +1043,8 @@ server.listen(PORT, () => {
             if (!err && stdout.trim()) {
                 const ipLines = stdout.trim().split('\n').filter(Boolean);
                 if (ipLines.length > 0) {
-                    cachedSshOnline = "1 User";
-                    cachedUserListDetails = `IP Active: ${ipLines[0]}`;
+                    cachedSshOnline = `${ipLines.length} User`;
+                    cachedUserListDetails = `IP Active: ${ipLines.join(', ')}`;
                 } else {
                     cachedSshOnline = "0 User";
                     cachedUserListDetails = "Semua user offline";
