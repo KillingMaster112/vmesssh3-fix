@@ -126,7 +126,7 @@ function getAdminPassword() {
 
 function verifyAdminPassword(passInput) {
     const currentPass = getAdminPassword();
-    if (!currentPass) return false;
+    if (!currentPass || !passInput) return false;
     return currentPass === passInput;
 }
 
@@ -266,7 +266,7 @@ function getCurrentHosts() {
 }
 
 // ========================================================
-// MANAJEMEN AKUN SSH + EXPIRED
+// MANAJEMEN AKUN SSH + EXPIRED (KHUSUS ADMIN)
 // ========================================================
 function listSsh() {
     try {
@@ -355,7 +355,7 @@ function deleteSsh(username) {
 }
 
 // ========================================================
-// MANAJEMEN AKUN V2RAY (VLESS / VMESS / TROJAN) + EXPIRED
+// MANAJEMEN AKUN V2RAY (VLESS / VMESS / TROJAN) + EXPIRED (KHUSUS ADMIN)
 // ========================================================
 function listV2ray() {
     try {
@@ -436,7 +436,6 @@ async function deleteV2ray(username) {
 async function checkAndCleanExpiredAccounts() {
     const now = Date.now();
 
-    // 1. Cek Expired SSH
     const sshDb = loadDb();
     let sshChanged = false;
     const sshUsers = Object.keys(sshDb);
@@ -455,7 +454,6 @@ async function checkAndCleanExpiredAccounts() {
     }
     if (sshChanged) saveDb(sshDb);
 
-    // 2. Cek Expired V2Ray
     const v2rayDb = loadV2rayDb();
     let v2rayChanged = false;
     const v2rayUsers = Object.keys(v2rayDb);
@@ -735,8 +733,9 @@ const server = http.createServer(async function(req, res) {
         const defaultVless = readPathsFromFile("pathvless.txt", "/vless-argo")[0];
         const defaultVmess = readPathsFromFile("pathvmess.txt", "/vmess-argo")[0];
         const defaultTrojan = readPathsFromFile("pathtrojan.txt", "/trojan-argo")[0];
+        const isAdmin = verifyAdminPassword(query.token);
         return res.end(JSON.stringify({
-            uuid: UUID,
+            uuid: isAdmin ? UUID : "",
             cfip: getActiveCfip(),
             domain: currentActiveDomain || "Menunggu Quick Tunnel...",
             paths: { vless: defaultVless, vmess: defaultVmess, trojan: defaultTrojan }
@@ -892,9 +891,12 @@ const server = http.createServer(async function(req, res) {
         }
     }
 
-    // --- API AKUN SSH ---
+    // --- API AKUN SSH (WAJIB ADMIN) ---
     if (pathName === "/api/add") {
         res.writeHead(200, { "Content-Type": "application/json" });
+        if (!verifyAdminPassword(query.token)) {
+            return res.end(JSON.stringify({ status: "error", message: "Akses Ditolak! Hanya Admin yang bisa membuat akun SSH." }));
+        }
         return res.end(JSON.stringify(addSsh(query.user, query.pass, query.exp, ipAddr, userAgent)));
     }
 
@@ -906,12 +908,18 @@ const server = http.createServer(async function(req, res) {
 
     if (pathName === "/api/list") {
         res.writeHead(200, { "Content-Type": "application/json" });
+        if (!verifyAdminPassword(query.token)) {
+            return res.end(JSON.stringify({ status: "error", message: "Unauthorized", users: [] }));
+        }
         return res.end(JSON.stringify(listSsh()));
     }
 
-    // --- API AKUN V2RAY (VLESS / VMESS / TROJAN) ---
+    // --- API AKUN V2RAY (WAJIB ADMIN) ---
     if (pathName === "/api/v2ray/add") {
         res.writeHead(200, { "Content-Type": "application/json" });
+        if (!verifyAdminPassword(query.token)) {
+            return res.end(JSON.stringify({ status: "error", message: "Akses Ditolak! Hanya Admin yang bisa membuat akun V2Ray." }));
+        }
         const result = await addV2ray(query.user, query.uuid, query.exp);
         return res.end(JSON.stringify(result));
     }
@@ -925,6 +933,9 @@ const server = http.createServer(async function(req, res) {
 
     if (pathName === "/api/v2ray/list") {
         res.writeHead(200, { "Content-Type": "application/json" });
+        if (!verifyAdminPassword(query.token)) {
+            return res.end(JSON.stringify({ status: "error", message: "Unauthorized", users: [] }));
+        }
         return res.end(JSON.stringify(listV2ray()));
     }
 
@@ -1058,14 +1069,12 @@ function forwardWebsocket(targetPort, req, socket, head) {
 server.on("upgrade", function(req, socket, head) {
     const urlPath = req.url.split("?")[0];
 
-    // Jika Request WebSocket khusus SSH WS
     if (urlPath === "/ssh-ws" || urlPath.startsWith("/ssh")) {
         const wsCfg = getWsProxyConfig();
         const targetPort = wsCfg.sshPort || 22;
         return forwardWebsocket(targetPort, req, socket, head);
     }
 
-    // Semua Request WebSocket (VLESS / VMess / Trojan) langsung dilayangkan ke Xray (Port 8001)
     return forwardWebsocket(ARGO_PORT, req, socket, head);
 });
 
@@ -1090,7 +1099,6 @@ server.listen(PORT, function() {
         extractDomains();
     }, 3000);
 
-    // Pengecekan otomatis akun expired setiap 60 detik
     setInterval(function() {
         checkAndCleanExpiredAccounts();
     }, 60000);
